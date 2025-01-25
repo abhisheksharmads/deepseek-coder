@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from openai import OpenAI
 from typing import Dict, List, Optional, Tuple
 
@@ -24,15 +25,15 @@ I will treat each task as if it were going directly into production code that af
 When you need help, I'll work through problems systematically and ensure you understand every aspect of the solution.
 Feel free to ask me to explain any part of the code or to modify it to better suit your needs."""
     }]
-    
-if "reasoning_history" not in st.session_state:
-    st.session_state.reasoning_history = []
 
-def create_client(api_key: str) -> OpenAI:
+def create_client() -> OpenAI:
     """
     Creates an OpenAI client configured for DeepSeek's API.
-    The client is specifically set up to work with the DeepSeek Reasoner model.
+    Uses the API key from Streamlit secrets.
     """
+    # Get API key from secrets
+    api_key = st.secrets["api_key"]
+    
     return OpenAI(
         api_key=api_key,
         base_url="https://api.deepseek.com"
@@ -41,25 +42,14 @@ def create_client(api_key: str) -> OpenAI:
 def generate_response(
     client: OpenAI,
     messages: List[Dict[str, str]]
-) -> Tuple[str, str]:
+) -> str:
     """
     Generates a response using the DeepSeek Reasoner model.
-    Returns both the reasoning process and the final content.
-    
-    Args:
-        client: The configured OpenAI client
-        messages: List of conversation messages
-        
-    Returns:
-        Tuple containing (reasoning_content, final_content)
+    Only returns the final content, keeping reasoning internal.
     """
     try:
-        # Create empty placeholders for streaming content
-        reasoning_placeholder = st.empty()
+        # Create empty placeholder for response
         response_placeholder = st.empty()
-        
-        # Initialize content collectors
-        reasoning_content = ""
         final_content = ""
         
         # Generate the response with streaming enabled
@@ -71,27 +61,20 @@ def generate_response(
         
         # Process the streaming response
         for chunk in response:
-            # Handle reasoning content - This shows the model's thought process
-            if hasattr(chunk.choices[0].delta, 'reasoning_content') and chunk.choices[0].delta.reasoning_content:
-                reasoning_content += chunk.choices[0].delta.reasoning_content
-                reasoning_placeholder.markdown("🤔 **Problem-Solving Process:**\n" + reasoning_content + "▌")
-            
-            # Handle final content - This contains the actual code and explanation
+            # Skip reasoning content, only show final answer
             if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
                 final_content += chunk.choices[0].delta.content
-                response_placeholder.markdown("💻 **Solution:**\n" + final_content + "▌")
+                response_placeholder.markdown("💻 **Response:**\n" + final_content + "▌")
         
-        # Update final display with complete content
-        if reasoning_content:
-            reasoning_placeholder.markdown("🤔 **Problem-Solving Process:**\n" + reasoning_content)
+        # Update final display
         if final_content:
-            response_placeholder.markdown("💻 **Solution:**\n" + final_content)
+            response_placeholder.markdown("💻 **Response:**\n" + final_content)
             
-        return reasoning_content, final_content
+        return final_content
             
     except Exception as e:
         st.error(f"Error generating response: {str(e)}")
-        return "", ""
+        return ""
 
 def main():
     st.title("🚀 Professional Coding Assistant")
@@ -100,39 +83,22 @@ def main():
     I understand the importance of your work and will provide thorough, production-ready solutions.
     """)
     
-    # Sidebar for configuration
+    # Sidebar just for session management
     with st.sidebar:
-        st.header("Configuration")
-        api_key = st.text_input(
-            "DeepSeek API Key",
-            type="password",
-            help="Enter your DeepSeek API key to begin"
-        )
-        
+        st.header("Session Control")
         if st.button("Start New Session"):
             # Preserve the system prompt while clearing the conversation
             system_prompt = st.session_state.messages[0]
             st.session_state.messages = [system_prompt]
-            st.session_state.reasoning_history = []
             st.rerun()
 
-    # Display chat history with reasoning
-    for idx, (message, reasoning) in enumerate(zip(
-        st.session_state.messages[1:],  # Skip system prompt in display
-        st.session_state.reasoning_history + [None] * (len(st.session_state.messages) - 1 - len(st.session_state.reasoning_history))
-    )):
+    # Display chat history
+    for message in st.session_state.messages[1:]:  # Skip system prompt in display
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            if reasoning and message["role"] == "assistant":
-                with st.expander("View Problem-Solving Process"):
-                    st.markdown(reasoning)
 
     # Chat input
     if prompt := st.chat_input("Describe your coding task or question..."):
-        if not api_key:
-            st.error("Please enter your DeepSeek API key in the sidebar to begin.")
-            return
-
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         
@@ -140,19 +106,21 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Create client and generate response
-        client = create_client(api_key)
-        
-        # Display assistant response
-        with st.chat_message("assistant"):
-            reasoning, response = generate_response(
-                client=client,
-                messages=st.session_state.messages
-            )
+        try:
+            # Create client and generate response
+            client = create_client()
             
-            if response:
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                st.session_state.reasoning_history.append(reasoning)
+            # Display assistant response
+            with st.chat_message("assistant"):
+                response = generate_response(
+                    client=client,
+                    messages=st.session_state.messages
+                )
+                
+                if response:
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+        except Exception as e:
+            st.error("Failed to connect to the API. Please check if the API key is properly configured in secrets.")
 
 if __name__ == "__main__":
     main()
