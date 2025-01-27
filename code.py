@@ -8,10 +8,10 @@ class DeepSeekReasonerChat:
     This implementation maintains the exact format of the DeepSeek API responses and handles
     the streaming of both reasoning and content separately.
     """
-    def __init__(self, api_key: str):
-        """Initialize the chat interface with the DeepSeek API key."""
+    def __init__(self):
+        """Initialize the chat interface using the API key from Streamlit secrets."""
         self.client = OpenAI(
-            api_key=api_key,
+            api_key=st.secrets["deepseek"]["api_key"],
             base_url="https://api.deepseek.com"
         )
         
@@ -55,7 +55,12 @@ def initialize_session_state():
         st.session_state.show_reasoning = False
 
 def main():
-    st.title("🤖 DeepSeek Reasoner Chat")
+    st.set_page_config(
+        page_title="DeepSeek Reasoner Chat",
+        page_icon=":brain:"
+    )
+    
+    st.title("DeepSeek Reasoner Chat :brain:")
     st.write("An AI assistant that can show its reasoning process")
     
     # Initialize session state
@@ -64,12 +69,6 @@ def main():
     # Sidebar configuration
     with st.sidebar:
         st.header("Configuration")
-        api_key = st.text_input(
-            "DeepSeek API Key:",
-            type="password",
-            help="Enter your DeepSeek API key"
-        )
-        
         st.session_state.show_reasoning = st.checkbox(
             "Show AI Reasoning Process",
             value=st.session_state.show_reasoning
@@ -83,17 +82,14 @@ def main():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             if "reasoning" in message and st.session_state.show_reasoning:
-                st.markdown("**🤔 Reasoning Process:**")
+                st.markdown("**Reasoning Process:**")
                 st.markdown(message["reasoning"])
-                st.markdown("**🎯 Response:**")
+                st.divider()
+                st.markdown("**Response:**")
             st.markdown(message["content"])
     
     # Chat input
     if prompt := st.chat_input("Ask me anything..."):
-        if not api_key:
-            st.error("Please enter your DeepSeek API key in the sidebar.")
-            return
-        
         # Display user message
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -115,23 +111,24 @@ def main():
         # Generate and display assistant response
         with st.chat_message("assistant"):
             try:
-                reasoner = DeepSeekReasonerChat(api_key)
+                reasoner = DeepSeekReasonerChat()
                 
                 # Create placeholder for streaming response
-                reasoning_placeholder = st.empty()
-                response_placeholder = st.empty()
+                message_container = st.container()
                 
-                # Generate response
-                reasoning_content, content = reasoner.generate_response(api_messages)
-                
-                # Display reasoning if enabled
-                if st.session_state.show_reasoning:
-                    reasoning_placeholder.markdown("**🤔 Reasoning Process:**")
-                    st.markdown(reasoning_content)
-                    st.markdown("**🎯 Response:**")
-                
-                # Display final response
-                response_placeholder.markdown(content)
+                with message_container:
+                    # Generate response
+                    reasoning_content, content = reasoner.generate_response(api_messages)
+                    
+                    # Display reasoning if enabled
+                    if st.session_state.show_reasoning:
+                        st.markdown("**Reasoning Process:**")
+                        st.markdown(reasoning_content)
+                        st.divider()
+                        st.markdown("**Response:**")
+                    
+                    # Display final response
+                    st.markdown(content)
                 
                 # Add assistant response to session state
                 st.session_state.messages.append({
