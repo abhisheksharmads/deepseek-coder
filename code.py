@@ -2,10 +2,14 @@ import streamlit as st
 import os
 from openai import OpenAI
 from typing import Dict, List, Optional, Tuple
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize session state for chat history
 if "messages" not in st.session_state:
-    # Initialize with our specialized system prompt
     st.session_state.messages = [{
         "role": "system",
         "content": """I am your dedicated professional coding partner, committed to helping you succeed in your work. 
@@ -26,55 +30,87 @@ When you need help, I'll work through problems systematically and ensure you und
 Feel free to ask me to explain any part of the code or to modify it to better suit your needs."""
     }]
 
-def create_client() -> OpenAI:
+def create_client() -> Optional[OpenAI]:
     """
     Creates an OpenAI client configured for DeepSeek's API.
     Uses the API key from Streamlit secrets.
+    Returns None if the API key is not configured.
     """
-    # Get API key from secrets
-    api_key = st.secrets["api_key"]
-    
-    return OpenAI(
-        api_key=api_key,
-        base_url="https://api.deepseek.com"
-    )
+    try:
+        api_key = st.secrets["api_key"]
+        if not api_key:
+            st.error("API key is empty. Please configure it in your secrets.")
+            return None
+            
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.deepseek.com"
+        )
+        return client
+    except Exception as e:
+        logger.error(f"Error creating client: {str(e)}")
+        st.error("Failed to create API client. Please check your configuration.")
+        return None
 
 def generate_response(
     client: OpenAI,
     messages: List[Dict[str, str]]
-) -> str:
+) -> Optional[str]:
     """
     Generates a response using the DeepSeek Reasoner model.
-    Only returns the final content, keeping reasoning internal.
+    Returns None if there's an error in generation.
     """
+    if not client:
+        return None
+        
     try:
         # Create empty placeholder for response
         response_placeholder = st.empty()
         final_content = ""
         
+        # Add debug information
+        logger.info("Generating response with messages:")
+        logger.info(messages)
+        
         # Generate the response with streaming enabled
         response = client.chat.completions.create(
             model="deepseek-reasoner",
             messages=messages,
-            stream=True
+            stream=True,
+            temperature=0.7,  # Added for more reliable responses
+            max_tokens=2000   # Set a reasonable limit
         )
         
         # Process the streaming response
-        for chunk in response:
-            # Skip reasoning content, only show final answer
-            if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
-                final_content += chunk.choices[0].delta.content
-                response_placeholder.markdown("💻 **Response:**\n" + final_content + "▌")
+        try:
+            for chunk in response:
+                if not chunk or not chunk.choices:
+                    logger.warning("Received empty chunk or no choices")
+                    continue
+                    
+                delta = chunk.choices[0].delta
+                if hasattr(delta, 'content') and delta.content:
+                    final_content += delta.content
+                    response_placeholder.markdown("💻 **Response:**\n" + final_content + "▌")
+        except Exception as e:
+            logger.error(f"Error processing stream: {str(e)}")
+            st.error("Error occurred while processing the response stream")
+            return None
         
-        # Update final display
-        if final_content:
-            response_placeholder.markdown("💻 **Response:**\n" + final_content)
+        # Validate final content
+        if not final_content.strip():
+            logger.warning("Generated empty response")
+            st.warning("The model generated an empty response. Please try again.")
+            return None
             
+        # Update final display
+        response_placeholder.markdown("💻 **Response:**\n" + final_content)
         return final_content
             
     except Exception as e:
+        logger.error(f"Error generating response: {str(e)}")
         st.error(f"Error generating response: {str(e)}")
-        return ""
+        return None
 
 def main():
     st.title("🚀 Professional Coding Assistant")
@@ -83,17 +119,16 @@ def main():
     I understand the importance of your work and will provide thorough, production-ready solutions.
     """)
     
-    # Sidebar just for session management
+    # Sidebar for session management
     with st.sidebar:
         st.header("Session Control")
         if st.button("Start New Session"):
-            # Preserve the system prompt while clearing the conversation
             system_prompt = st.session_state.messages[0]
             st.session_state.messages = [system_prompt]
             st.rerun()
 
     # Display chat history
-    for message in st.session_state.messages[1:]:  # Skip system prompt in display
+    for message in st.session_state.messages[1:]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
@@ -106,11 +141,9 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        try:
-            # Create client and generate response
-            client = create_client()
-            
-            # Display assistant response
+        # Create client and generate response
+        client = create_client()
+        if client:
             with st.chat_message("assistant"):
                 response = generate_response(
                     client=client,
@@ -119,8 +152,8 @@ def main():
                 
                 if response:
                     st.session_state.messages.append({"role": "assistant", "content": response})
-        except Exception as e:
-            st.error("Failed to connect to the API. Please check if the API key is properly configured in secrets.")
+                else:
+                    st.error("Failed to generate a response. Please try again.")
 
 if __name__ == "__main__":
     main()
