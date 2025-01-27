@@ -76,7 +76,7 @@ def generate_response(
         response = client.chat.completions.create(
             model="deepseek-reasoner",
             messages=messages,
-            stream=True,
+            stream=False,
             temperature=0.7,  # Added for more reliable responses
             max_tokens=2000   # Set a reasonable limit
         )
