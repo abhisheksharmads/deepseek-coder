@@ -2,7 +2,7 @@ import streamlit as st
 from openai import OpenAI
 
 def main():
-    st.set_page_config(page_title="DeepSeek-R1 Coding Assistant", layout="centered")
+    st.set_page_config(page_title="Abhishek's Coding Assistant", layout="centered")
     st.title("DeepSeek-R1 Coding Assistant")
 
     # ------------------------------------------------------------------------
